@@ -10,17 +10,13 @@ namespace EcommerceApplication.Exceptions
 {
     internal class CustomerNotFoundException : Exception
     {
+
+        public CustomerNotFoundException() { }
         public CustomerNotFoundException(string message) : base(message)
         { 
         }
 
-        public static void customernotfound(int customerid)
-        {
-            OrderProcessorRepositoryImpl orderProcessorRepositoryImpl = new OrderProcessorRepositoryImpl();
-            if(!orderProcessorRepositoryImpl.CustomerNotExist(customerid))
-             throw new CustomerNotFoundException("Customer not found!!!");
-
-        }
+        
 
     }
 }

@@ -32,3 +32,4 @@ D:\Company\DotNet-code\Ecommerce Application\EcommerceApplication\bin\Debug\net6
 D:\Company\DotNet-code\Ecommerce Application\EcommerceApplication\bin\Debug\net6.0\runtimes\browser\lib\net6.0\System.Text.Encodings.Web.dll
 D:\Company\DotNet-code\Ecommerce Application\EcommerceApplication\obj\Debug\net6.0\EcommerceApplication.csproj.AssemblyReference.cache
 D:\Company\DotNet-code\Ecommerce Application\EcommerceApplication\obj\Debug\net6.0\Ecommerc.2059BCE1.Up2Date
+D:\Company\DotNet-code\Ecommerce Application\EcommerceApplication\obj\Debug\net6.0\EcommerceApplication.sourcelink.json

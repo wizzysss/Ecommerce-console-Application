@@ -10,18 +10,14 @@ namespace EcommerceApplication.Exceptions
     internal class InvalidCustomerException : Exception
     {
 
+        public InvalidCustomerException() { }
+
         public InvalidCustomerException(string message) : base(message)
         { 
 
         }
 
-        public static void InvalidCustomerData(Customer customer)
-        {
-            if (!customer.Email.Contains('@'))
-            {
-                throw new InvalidCustomerException("Invalid Email");
-            }
-        }
+       
 
 
     }

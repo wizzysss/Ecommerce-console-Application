@@ -121,3 +121,4 @@ D:\Company\DotNet-code\Ecommerce Application\Testing.nUnitTests\obj\Debug\net6.0
 D:\Company\DotNet-code\Ecommerce Application\Testing.nUnitTests\obj\Debug\net6.0\Testing.nUnitTests.pdb
 D:\Company\DotNet-code\Ecommerce Application\Testing.nUnitTests\obj\Debug\net6.0\Testing.nUnitTests.genruntimeconfig.cache
 D:\Company\DotNet-code\Ecommerce Application\Testing.nUnitTests\obj\Debug\net6.0\ref\Testing.nUnitTests.dll
+D:\Company\DotNet-code\Ecommerce Application\Testing.nUnitTests\obj\Debug\net6.0\Testing.nUnitTests.sourcelink.json

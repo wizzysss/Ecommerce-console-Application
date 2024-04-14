@@ -1,8 +1,11 @@
-﻿using EcommerceApplication.Models;
+﻿using EcommerceApplication.Exceptions;
+using EcommerceApplication.Models;
 using EcommerceApplication.Utility;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Data.SqlClient;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -35,6 +38,7 @@ namespace EcommerceApplication.Repository
             connect.Open();
             cmd.Connection = connect;
             cmd.ExecuteNonQuery();
+            cmd.Parameters.Clear();
             connect.Close();
             return true;
         }
@@ -48,6 +52,7 @@ namespace EcommerceApplication.Repository
             connect.Open();
             cmd.Connection = connect;
             cmd.ExecuteNonQuery();
+            cmd.Parameters.Clear();
 
             connect.Close();
             return true;
@@ -61,6 +66,7 @@ namespace EcommerceApplication.Repository
             cmd.Connection = connect;
             cmd.ExecuteNonQuery();
             connect.Close();
+            cmd.Parameters.Clear();
             return true;
         }
 
@@ -72,45 +78,55 @@ namespace EcommerceApplication.Repository
             cmd.Connection = connect;
             cmd.ExecuteNonQuery();
             connect.Close();
+            cmd.Parameters.Clear();
             return true;
         }
 
         public bool AddToCart(Customer customer, Product product, int quantity)
         {
-            cmd.CommandText = "Insert into cart values(@cusid,@proid,@quantity)";
-            cmd.Parameters.AddWithValue("@cusid", customer.CustomerId);
-            cmd.Parameters.AddWithValue("@proid", product.ProductId);
-            cmd.Parameters.AddWithValue("@quantity", quantity);
+        
 
-            connect.Open();
-            cmd.Connection = connect;
-            cmd.ExecuteNonQuery();
-            cmd.Parameters.Clear();
-            connect.Close();
-            return true;
+                cmd.CommandText = "Insert into cart values(@cusid,@proid,@quantity)";
+                cmd.Parameters.AddWithValue("@cusid", customer.CustomerId);
+                cmd.Parameters.AddWithValue("@proid", product.ProductId);
+                cmd.Parameters.AddWithValue("@quantity", quantity);
+
+                connect.Open();
+                cmd.Connection = connect;
+                cmd.ExecuteNonQuery();
+                cmd.Parameters.Clear();
+                connect.Close();
+                cmd.Parameters.Clear();
+                return true;
+
         }
 
         public bool RemoveFromCart(Customer customer, Product product)
         {
-            cmd.CommandText = "delete from cart where customer_id = @removecid and product_id=@pid";
+            cmd.CommandText = "delete from cart where customer_id = @removecid and product_id=@rpid";
             cmd.Parameters.AddWithValue("@removecid", customer.CustomerId);
-            cmd.Parameters.AddWithValue("@pid", product.ProductId);
+            cmd.Parameters.AddWithValue("@rpid", product.ProductId);
             connect.Open();
             cmd.Connection = connect;
             cmd.ExecuteNonQuery();
             connect.Close();
-
+            cmd.Parameters.Clear();
             return true;
         }
 
         public List<Cart> GetAllFromCart(Customer customer)
         {
             List<Cart> cartList = new List<Cart>();
-            cmd.CommandText = "Select * from cart where customer_id=@customerid";
+
+            cmd.CommandText = "SELECT * FROM cart WHERE customer_id = @customerid";
+            cmd.Parameters.Clear();
             cmd.Parameters.AddWithValue("@customerid", customer.CustomerId);
+
             connect.Open();
             cmd.Connection = connect;
+
             SqlDataReader reader = cmd.ExecuteReader();
+
             while (reader.Read())
             {
                 Cart cart1 = new Cart();
@@ -120,137 +136,245 @@ namespace EcommerceApplication.Repository
                 cart1.Quantity = Convert.IsDBNull(reader["quantity"]) ? null : (int)reader["quantity"];
                 cartList.Add(cart1);
             }
+
             connect.Close();
+            
+
             return cartList;
         }
 
+     
 
-        public bool PlaceOrder(Customer customer, Order order, OrderItem orderitem, Product product)
+        public bool PlaceOrder(Customer customer, List<Dictionary<Product, int>> productsAndQuantities, string shippingAddress)
         {
+            try
+            {
+                List<Cart> cartItems = GetAllFromCart(customer);
+                int orderId = CreateOrder(customer, shippingAddress, cartItems);
+                foreach (var productQuantityPair in productsAndQuantities)
+                {
+                    foreach (var kvp in productQuantityPair)
+                    {
+                        Product product = kvp.Key;
+                        int quantity = kvp.Value;
+                        InsertOrderItem(orderId, product, quantity);
+                        UpdateProductStock(product.ProductId, quantity);
+                    }
+                }
+                RemoveItemsFromCart(customer);
 
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                return false;
+            }
+        }
+
+      
+        private int CreateOrder(Customer customer, string shippingAddress, List<Cart> cartItems)
+        {
+            int generatedOrderId = 0;
+                decimal totalPrice = CalculateTotalPrice(cartItems);
+                cmd.CommandText = "INSERT INTO orders (customer_id, order_date, total_price, shipping_address) OUTPUT INSERTED.order_id VALUES (@customerId_order, @orderDate, @totalPrice, @shippingAddress); ";
+                cmd.Parameters.AddWithValue("@customerId_order", customer.CustomerId);
+                cmd.Parameters.AddWithValue("@orderDate", DateTime.Now);
+                cmd.Parameters.AddWithValue("@shippingAddress", shippingAddress);
+                cmd.Parameters.AddWithValue("@totalPrice", totalPrice);
+                connect.Open();
+                cmd.Connection = connect;
+                object result = cmd.ExecuteScalar();
+                generatedOrderId = Convert.ToInt32(result);
+                Console.WriteLine("Order Total price is $"+totalPrice);
+                cmd.Parameters.Clear();
+                connect.Close();        
+            return generatedOrderId;
+        }
+
+        public decimal CalculateTotalPrice(List<Cart> cartItems)
+        {
+            decimal totalPrice = 0;
+            foreach (var cartItem in cartItems)
+            {
+                decimal productPrice = GetProductPrice(cartItem.ProductId ?? 0); 
+                totalPrice += productPrice * (cartItem.Quantity ?? 0);
+            }
+            return totalPrice;
+        }
+
+
+        private void InsertOrderItem(int orderId, Product product, int quantity)
+        {
+            cmd.CommandText = "INSERT INTO order_items (order_id, product_id, quantity) VALUES (@orderId_item, @productId, @quantity);";
+            cmd.Parameters.AddWithValue("@orderId_item", orderId);
+            cmd.Parameters.AddWithValue("@productId", product.ProductId);
+            cmd.Parameters.AddWithValue("@quantity", quantity);
+            connect.Open();
+            cmd.Connection = connect;
+            cmd.ExecuteNonQuery();
+            cmd.Parameters.Clear();
+            connect.Close();
+        }
+
+        private void RemoveItemsFromCart(Customer customer)
+        {
+            cmd.CommandText = "DELETE FROM cart WHERE customer_id = @customerId_remove_cart";
+            cmd.Parameters.AddWithValue("@customerId_remove_cart", customer.CustomerId);
+
+            connect.Open();
+            cmd.Connection = connect;
+            cmd.ExecuteNonQuery();
+            cmd.Parameters.Clear(); 
+            connect.Close();
+        }
+        public decimal GetProductPrice(int productId)
+        {
             decimal productprice = 0m;
-            int currentStock = 0;
-            connect.Open();
-            cmd.Connection = connect;
+                connect.Open();
+                cmd.Connection = connect;
+                cmd.CommandText = "SELECT price FROM products WHERE product_id = @productid";
+                cmd.Parameters.Clear();
+                cmd.Parameters.AddWithValue("@productid", productId);
 
-            // Fetch product price and stock
-            cmd.CommandText = "SELECT price, stockQuantity FROM products WHERE product_id = @productid";
-            cmd.Parameters.Clear();
-            cmd.Parameters.AddWithValue("@productid", product.ProductId);
-
-            using (var reader = cmd.ExecuteReader())
-            {
-                if (reader.Read()) // Ensure there is a row to read
+                using (var reader = cmd.ExecuteReader())
                 {
-                    productprice = reader.GetInt32(reader.GetOrdinal("price"));
-                    currentStock = reader.GetInt32(reader.GetOrdinal("stockQuantity"));
-                }
-            }
-
-            // Check if product price and stock were successfully fetched
-            if (productprice == 0 || currentStock == 0)
-            {
+                    if (reader.Read())
+                    {
+                        productprice = reader.GetInt32(reader.GetOrdinal("price"));
+                    }
+                }         
                 connect.Close();
-                return false; // Or handle the error appropriately
-            }
-
-            // Calculate total price
-            int quantityOrdered = orderitem.Quantity;
-            decimal totalPrice = productprice * quantityOrdered;
-
-            // Check if the customer exists
-            cmd.CommandText = "SELECT COUNT(*) FROM customers WHERE customer_id = @customerid";
-            cmd.Parameters.Clear();
-            cmd.Parameters.AddWithValue("@customerid", customer.CustomerId);
-            int customerCount = (int)cmd.ExecuteScalar();
-
-            if (customerCount == 0)
-            {
-                connect.Close();
-                return false; // Customer does not exist, handle the error appropriately
-            }
-
-            // Insert into orders and retrieve the generated OrderId
-            cmd.CommandText = "INSERT INTO orders (customer_id, order_date, total_price, shipping_address) OUTPUT INSERTED.order_id VALUES (@customerid, @orderdate, @totalprice, @shippingadd)";
-            cmd.Parameters.Clear();
-            cmd.Parameters.AddWithValue("@customerid", customer.CustomerId);
-            cmd.Parameters.AddWithValue("@orderdate", DateTime.Now);
-            cmd.Parameters.AddWithValue("@totalprice", totalPrice);
-            cmd.Parameters.AddWithValue("@shippingadd", order.ShippingAddress);
-
-            int generatedOrderId;
-            using (var reader = cmd.ExecuteReader())
-            {
-                if (reader.Read())
-                {
-                    generatedOrderId = reader.GetInt32(0); // Assuming order_id is the first column
-                }
-                else
-                {
-                    connect.Close();
-                    return false; // Failed to insert order, handle the error appropriately
-                }
-            }
-
-            // Insert into order_items
-            cmd.CommandText = "INSERT INTO order_items (order_id, product_id, quantity) VALUES (@orderid, @productid, @quantity)";
-            cmd.Parameters.Clear();
-            cmd.Parameters.AddWithValue("@orderid", generatedOrderId);
-            cmd.Parameters.AddWithValue("@productid", product.ProductId);
-            cmd.Parameters.AddWithValue("@quantity", quantityOrdered);
-            cmd.ExecuteNonQuery();
-
-            // Update product stock
-            int newStock = currentStock - quantityOrdered;
-            cmd.CommandText = "UPDATE products SET stockQuantity = @newstock WHERE product_id = @productid";
-            cmd.Parameters.Clear();
-            cmd.Parameters.AddWithValue("@newstock", newStock);
-            cmd.Parameters.AddWithValue("@productid", product.ProductId);
-            cmd.ExecuteNonQuery();
-
-            // Close connection
-            connect.Close();
-
-            return true;
+            return productprice;
         }
 
-        public List<OrderItem> GetOrderByCustomer(Order order)
+        private void UpdateProductStock(int productId, int quantity)
         {
-            List<OrderItem> OrderList = new List<OrderItem>();
-
-            cmd.CommandText = "select oi.product_id as prod,oi.quantity as qua from order_items as oi join orders as o on o.order_id = oi.order_id where o.customer_id = @ocustomer";
-
-
-            cmd.Parameters.AddWithValue("@ocustomer",order.CustomerId);
-            connect.Open();
-            cmd.Connection = connect;
-            SqlDataReader reader = cmd.ExecuteReader();
-            while (reader.Read())
+            try
             {
-               OrderItem orderItem = new OrderItem();
-                orderItem.ProductId = (int)reader["prod"];
-                orderItem.Quantity = (int)reader["qua"];
-               
-                
-                OrderList.Add(orderItem);
+                cmd.CommandText = "UPDATE products SET stockQuantity = stockQuantity - @quantity WHERE product_id = @productId AND stockQuantity >= @quantity;";
+                cmd.Parameters.AddWithValue("@quantity", quantity);
+                cmd.Parameters.AddWithValue("@productId", productId);
+
+                connect.Open();
+                cmd.Connection = connect;
+                int rowsAffected = cmd.ExecuteNonQuery();
+
+                if (rowsAffected == 0)
+                {
+                    throw new Exception("Not enough stock for product ID " + productId);
+                }
             }
-            connect.Close();
-            return OrderList;
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error updating product stock: " + ex.Message);
+                throw;
+            }
+            finally
+            {
+                cmd.Parameters.Clear();
+                connect.Close();
+            }
         }
 
+
+
+        public List<Dictionary<Product, int>> GetOrdersByCustomer(int customerId)
+        {
+            List<Dictionary<Product, int>> orders = new List<Dictionary<Product, int>>();
+                using (SqlConnection connect = new SqlConnection(DataConnectionUtility.GetConnectionString()))
+                using (SqlCommand cmd = connect.CreateCommand())
+                {
+                    if (connect.State != ConnectionState.Open)
+                        connect.Open();
+
+                    // Construct the SQL command to fetch orders by customer
+                    cmd.CommandText = "SELECT o.order_id, oi.product_id, oi.quantity " +
+                                      "FROM orders o " +
+                                      "JOIN order_items oi ON o.order_id = oi.order_id " +
+                                      "WHERE o.customer_id = @customerId";
+
+                    // Clear previous parameters before adding new ones
+                    cmd.Parameters.Clear();
+                    cmd.Parameters.AddWithValue("@customerId", customerId);
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        Dictionary<int, Dictionary<Product, int>> tempOrders = new Dictionary<int, Dictionary<Product, int>>();
+                        while (reader.Read())
+                        {
+                            int orderId = Convert.ToInt32(reader["order_id"]);
+                            int productId = Convert.ToInt32(reader["product_id"]);
+                            int quantity = Convert.ToInt32(reader["quantity"]);
+                            if (!tempOrders.ContainsKey(orderId))
+                            {
+                                tempOrders[orderId] = new Dictionary<Product, int>();
+                            }
+                            Product product = GetProductDetails(productId); 
+                            if (product != null)
+                            {
+                                tempOrders[orderId].Add(product, quantity);
+                            }
+                        }
+                        orders = tempOrders.Values.ToList();
+                    }
+                }
+            return orders;
+        }
+
+        public Product GetProductDetails(int productId)
+        {
+            Product product = null;
+
+            try
+            {
+                using (SqlConnection connect = new SqlConnection(DataConnectionUtility.GetConnectionString()))
+                using (SqlCommand cmd = connect.CreateCommand())
+                {
+                 
+                    if (connect.State != ConnectionState.Open)
+                        connect.Open();
+                    cmd.CommandText = "SELECT * FROM products WHERE product_id = @productId";
+                    cmd.Parameters.Clear();
+                    cmd.Parameters.AddWithValue("@productId", productId);
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        
+                        if (reader.Read())
+                        {
+                            product = new Product
+                            {
+                                ProductId = (int)reader["product_id"],
+                                Name = reader["name"].ToString(),
+                                Price = Convert.ToInt32(reader["price"]),
+                                Description = reader["description"].ToString(),
+                                StockQuantity = (int)reader["stockQuantity"]
+                            };
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error fetching product details: " + ex.Message);
+            }
+
+            // Return the fetched product (or null if not found)
+            return product;
+        }
 
 
 
         internal bool CustomerNotExist(int customerid)
         {
             int count = 0;
-            cmd.CommandText = "Select count(*) as total from customers where customer_id=@cid";
-            cmd.Parameters.AddWithValue("@cid", customerid);
+            cmd.CommandText = "Select count(*) as total from customers where customer_id=@cid1";
+            cmd.Parameters.AddWithValue("@cid1", customerid);
             connect.Open();
             cmd.Connection = connect;
             SqlDataReader reader = cmd.ExecuteReader();
             while (reader.Read())
             {
+                cmd.Parameters.Clear();
                 count = (int)reader["total"];
             }
             connect.Close();
@@ -261,16 +385,17 @@ namespace EcommerceApplication.Repository
             return false;
         }
 
-        internal bool OrderNotExist(int orderid)
+        internal bool OrderNotExist(int customerid)
         {
             int count = 0;
-            cmd.CommandText = "Select count(*) as total from orders where order_id=@oid";
-            cmd.Parameters.AddWithValue("@oid", orderid);
+            cmd.CommandText = "Select count(*) as total from orders where customer_id=@custoid";
+            cmd.Parameters.AddWithValue("@custoid", customerid);
             connect.Open();
             cmd.Connection = connect;
             SqlDataReader reader = cmd.ExecuteReader();
             while (reader.Read())
             {
+                cmd.Parameters.Clear();
                 count = (int)reader["total"];
             }
             connect.Close();
@@ -284,13 +409,15 @@ namespace EcommerceApplication.Repository
         public bool ProductNotExist(int productid)
         {
             int count = 0;
-            cmd.CommandText = "Select count(*) as total from products where product_id=@pid";
-            cmd.Parameters.AddWithValue("@pid", productid);
+            cmd.CommandText = "Select count(*) as total from products where product_id=@pid3";
+            cmd.Parameters.AddWithValue("@pid3", productid);
             connect.Open();
             cmd.Connection = connect;
+            
             SqlDataReader reader = cmd.ExecuteReader();
             while (reader.Read())
             {
+                cmd.Parameters.Clear();
                 count = (int)reader["total"];
             }
             connect.Close();
@@ -303,14 +430,15 @@ namespace EcommerceApplication.Repository
         internal bool ProductNotExistinCart(int productid,int customerid)
         {
             int count = 0;
-            cmd.CommandText = "Select count(*) as total from cart where product_id=@pid and customer_id=@cid";
-            cmd.Parameters.AddWithValue("@pid", productid);
-            cmd.Parameters.AddWithValue("@cid", customerid);
+            cmd.CommandText = "Select count(*) as total from cart where product_id=@pid4 and customer_id=@cid4";
+            cmd.Parameters.AddWithValue("@pid4", productid);
+            cmd.Parameters.AddWithValue("@cid4", customerid);
             connect.Open();
             cmd.Connection = connect;
             SqlDataReader reader = cmd.ExecuteReader();
             while (reader.Read())
             {
+                cmd.Parameters.Clear();
                 count = (int)reader["total"];
             }
             connect.Close();
@@ -320,25 +448,175 @@ namespace EcommerceApplication.Repository
             }
             return false;
         }
-        internal int availablestockquantity(int productid)
+        internal int Availablestockquantity(int productid)
         {
             int count = 0;
-            cmd.CommandText = "Select stockQuantity as avalquantity from products where product_id=@pid";
+            cmd.CommandText = "Select stockQuantity as avalquantity from products where product_id=@pid5";
 
-            cmd.Parameters.AddWithValue("@pid", productid);
+            cmd.Parameters.AddWithValue("@pid5", productid);
             connect.Open();
             cmd.Connection = connect;
             SqlDataReader reader = cmd.ExecuteReader();
             while (reader.Read())
             {
+                cmd.Parameters.Clear();
                 count = (int)reader["avalquantity"];
             }
             connect.Close();
             return count;        
         }
 
+        public List<Product> ShowAllProductNames()
+        {
+            List<Product> ProductName= new List<Product>();
+
+            cmd.CommandText = "SELECT name,product_id,price from products ";
+            cmd.Parameters.Clear();
+
+            connect.Open();
+            cmd.Connection = connect;
+
+            SqlDataReader reader = cmd.ExecuteReader();
+
+            while (reader.Read())
+            {
+                Product product = new Product();
+                product.Name = (string)reader["Name"];
+                product.ProductId = (int)reader["product_id"];
+                product.Price = Convert.ToInt32(reader["price"]);
+                ProductName.Add(product);
+                
+            }
+
+            connect.Close();
+
+            return ProductName;
+            
+
+        }
+
+        public bool CheckCustomerCredentials(string customerName, string password)
+        {
+            bool isValid = false;
+
+           
+
+            cmd.CommandText = "SELECT COUNT(*) FROM customers WHERE Cust_name = @customerName AND password = @password";
+            cmd.Parameters.AddWithValue("@customerName", customerName);
+            cmd.Parameters.AddWithValue("@password", password);
+
+            connect.Open();
+            cmd.Connection = connect;
+            int Count = Convert.ToInt32(cmd.ExecuteScalar());
+
+            // If count is greater than 0, it means the customer with the given name and password exists
+            isValid = Count > 0;
 
 
-       
+            cmd.Parameters.Clear();
+            connect.Close();
+
+
+            return isValid;
+        }
+
+        public void GetRecentcustID()
+        {
+            int recentid=-1;
+            cmd.CommandText=("SELECT TOP 1 customer_id FROM customers ORDER BY customer_id DESC");
+            connect.Open();
+            cmd.Connection = connect;
+           
+
+            SqlDataReader reader = cmd.ExecuteReader();
+            if (reader.Read())
+            {
+                recentid = reader.GetInt32(0);
+            }
+            reader.Close();
+            connect.Close();
+            Console.WriteLine("...........................");
+            Console.WriteLine("|YOUR CUSTOMER ID is "+recentid+"|");
+            Console.WriteLine("...........................");
+        }
+        public void DisplayCustomerId(string customerName, string password)
+        {
+                connect.Open();
+                cmd.CommandText = "SELECT customer_id FROM customers WHERE Cust_name = @customerName AND password = @password";
+                cmd.Parameters.AddWithValue("@customerName", customerName);
+                cmd.Parameters.AddWithValue("@password", password);
+
+                object result = cmd.ExecuteScalar();
+
+                if (result != null)
+                {
+                    int customerId = Convert.ToInt32(result);
+                    Console.WriteLine($"Logged in customer ID: {customerId}");
+                }
+                else
+                {
+                    Console.WriteLine("Customer not found or incorrect credentials.");
+                }
+                      
+                cmd.Parameters.Clear();
+                connect.Close();
+            
+        }
+        public void GetProductStockQuantity(int productId)
+        {
+            int stockQuantity = 0;
+                connect.Open();
+                cmd.CommandText = "SELECT stockQuantity FROM products WHERE product_id = @productId";
+                cmd.Parameters.Clear();
+                cmd.Parameters.AddWithValue("@productId", productId);
+                cmd.Connection = connect;
+                object result = cmd.ExecuteScalar();
+                if (result != null)
+                {
+                    stockQuantity = Convert.ToInt32(result);
+                }
+            else
+            {
+                Console.WriteLine("NO product quantity is null");
+            }
+                connect.Close();
+            Console.WriteLine("Stock Available is "+stockQuantity);
+        }
+
+        public int CustomerIdofLoggedIn(string customerName, string password)
+        {
+            int customerID = 0;
+            cmd.CommandText = "Select customer_id as ID from customers where Cust_name=@name and password=@password";
+
+            cmd.Parameters.AddWithValue("@name", customerName);
+            cmd.Parameters.AddWithValue("@password", password);
+            connect.Open();
+            cmd.Connection = connect;
+            SqlDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                cmd.Parameters.Clear();
+                customerID = (int)reader["ID"];
+            }
+            connect.Close();
+            return customerID;
+        }
+        public decimal GetTotalPriceByCustomerId(int customerId)
+        {
+            decimal totalPrice = 0;
+            cmd.CommandText = "SELECT SUM(total_price) as Total FROM orders WHERE customer_id = @customerId";
+
+            cmd.Parameters.AddWithValue("@customerId", customerId);
+            connect.Open();
+            cmd.Connection = connect;
+            SqlDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                cmd.Parameters.Clear();
+                totalPrice = (decimal)reader["Total"];
+            }
+            connect.Close();
+            return totalPrice;
+        }
     }
 }

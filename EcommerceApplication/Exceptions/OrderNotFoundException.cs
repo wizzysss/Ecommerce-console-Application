@@ -10,15 +10,15 @@ namespace EcommerceApplication.Exceptions
 {
     internal class OrderNotFoundException :Exception
     {
+        public OrderNotFoundException() { 
+        }
         public OrderNotFoundException(string message) : base(message)
         {
         }
 
         public static void ordernotfound(int orderid)
         {
-            OrderProcessorRepositoryImpl orderProcessorRepositoryImpl = new OrderProcessorRepositoryImpl();
-            if (!orderProcessorRepositoryImpl.OrderNotExist(orderid))
-                throw new OrderNotFoundException("Orderid not found");
+           
 
         }
     }

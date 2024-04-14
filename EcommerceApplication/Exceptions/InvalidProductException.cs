@@ -9,16 +9,12 @@ namespace EcommerceApplication.Exceptions
 {
     internal class InvalidProductException : Exception
     {
+        public InvalidProductException() { 
+        }
         public InvalidProductException(string message) : base(message)
         {
 
         }
-        public static void InvalidProductData(Product product)
-        {
-            if (product.Price < 0)
-            {
-                throw new InvalidProductException("Invalid Price amount");
-            }
-        }
+        
     }
 }
